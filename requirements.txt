@@ -1,0 +1,15 @@
+
+channels==4.0.0
+daphne==4.1.0
+celery==5.3.6
+redis==5.0.3
+asgiref==3.11.0
+dj-database-url==3.1.0          # Keep ONLY this version
+Django==5.2.8
+djangorestframework==3.16.1
+gunicorn==25.0.1
+packaging==26.0
+psycopg2-binary==2.9.11
+sqlparse==0.5.3
+tzdata==2025.2
+whitenoise==6.8.0              # Add this if missing

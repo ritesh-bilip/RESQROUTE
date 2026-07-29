@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ResQRoute - Crisis Control Center</title>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Sidebar layout */
+        #sidebar {
+            width: 350px;
+            background: #1e293b;
+            color: #f8fafc;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+        }
+
+        #sidebar h2 {
+            color: #38bdf8;
+            font-size: 1.4rem;
+        }
+
+        #sidebar p {
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .form-group label {
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #475569;
+            background: #0f172a;
+            color: #fff;
+            font-size: 0.9rem;
+        }
+
+        button {
+            background: #0284c7;
+            color: white;
+            padding: 10px;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #0369a1;
+        }
+
+        /* Main Map Container */
+        #map {
+            flex: 1;
+            height: 100%;
+        }
+
+        /* Custom map pin helper legend */
+        .legend {
+            background: rgba(15, 23, 42, 0.9);
+            color: #fff;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Sidebar Control Panel -->
+    <div id="sidebar">
+        <h2>🚨 Emergency Dispatch</h2>
+        <p>Click anywhere on the map to automatically pin coordinates for a new incident report.</p>
+
+        <form id="incidentForm">
+            <div class="form-group">
+                <label for="title">Incident Title</label>
+                <input type="text" id="title" placeholder="e.g., Road Flooded / Fallen Tree" required>
+            </div>
+
+            <div class="form-group">
+                <label for="severity">Severity Level</label>
+                <select id="severity">
+                    <option value="LOW">Low - Resource Request</option>
+                    <option value="MED">Medium - Road Impassable</option>
+                    <option value="CRIT">Critical - Immediate Danger</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="latitude">Latitude</label>
+                <input type="text" id="latitude" placeholder="Click map to set" readonly required>
+            </div>
+
+            <div class="form-group">
+                <label for="longitude">Longitude</label>
+                <input type="text" id="longitude" placeholder="Click map to set" readonly required>
+            </div>
+
+            <div class="form-group">
+                <label for="description">Notes / Details</label>
+                <textarea id="description" rows="3" placeholder="Provide extra details..."></textarea>
+            </div>
+
+            <button type="submit">Submit Incident Pin</button>
+        </form>
+
+        <div class="legend">
+            <strong>Map Legend:</strong><br>
+            🔴 Red Solid Zone: Active Hazard Area<br>
+            🔴 Red Pin: Critical Emergency<br>
+            🟠 Orange Pin: Medium Severity<br>
+            🟡 Yellow Pin: Low Severity<br>
+            🔵 Blue Pin: Logistics & Supplies Hub
+        </div>
+    </div>
+
+    <!-- Map Canvas -->
+    <div id="map"></div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Initialize Leaflet Map centered over a default location
+        const map = L.map('map').setView([22.5726, 88.3639], 12);
+
+        // OpenStreetMap Tile Layer
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        let tempMarker = null;
+
+        // Capture clicks on the map to set Lat/Lng form fields
+        map.on('click', function (e) {
+            const lat = e.latlng.lat.toFixed(6);
+            const lng = e.latlng.lng.toFixed(6);
+
+            document.getElementById('latitude').value = lat;
+            document.getElementById('longitude').value = lng;
+
+            // Remove previous temporary marker if it exists
+            if (tempMarker) map.removeLayer(tempMarker);
+
+            // Add new temporary pin
+            tempMarker = L.marker([lat, lng], { opacity: 0.7 }).addTo(map)
+                .bindPopup("Selected Location").openPopup();
+        });
+
+        // Load Spatial Layers (Incidents, Hubs, and Hazard Polygons)
+        const incidentMarkers = {};
+        function loadMapData() {
+            fetch('/api/map-data/')
+                .then(res => res.json())
+                .then(data => {
+                    data.incidents.forEach(inc => {
+                        addOrUpdateIncidentMarker(inc);
+                    });
+                    // 1. Render PostGIS Hazard Zones (GeoJSON Polygons)
+                    if (data.hazard_zones) {
+                        data.hazard_zones.forEach(zone => {
+                            L.geoJSON(zone.geojson, {
+                                style: {
+                                    color: '#ef4444',
+                                    fillColor: '#ef4444',
+                                    fillOpacity: 0.35,
+                                    weight: 2
+                                }
+                            }).bindPopup(`<b>⚠️ Hazard Zone:</b> ${zone.name}`).addTo(map);
+                        });
+                    }
+
+                    // 2. Render Incident Pins
+                    data.incidents.forEach(inc => {
+                        let color = inc.severity === 'CRIT' ? '#ef4444' : (inc.severity === 'MED' ? '#f97316' : '#eab308');
+                        L.circleMarker([inc.latitude, inc.longitude], {
+                            color: color,
+                            fillColor: color,
+                            fillOpacity: 0.8,
+                            radius: 9
+                        }).bindPopup(`<b>[${inc.severity}] ${inc.title}</b><br>${inc.description}`).addTo(map);
+                    });
+
+                    // 3. Render Logistics Hubs
+                    data.hubs.forEach(hub => {
+                        L.marker([hub.latitude, hub.longitude])
+                            .bindPopup(`<b>📦 Hub: ${hub.name}</b><br>Supplies: ${hub.supplies_available}`)
+                            .addTo(map);
+                    });
+                });
+        }
+        function addOrUpdateIncidentMarker(inc) {
+            let color = inc.severity === 'CRIT' ? '#ef4444' : (inc.severity === 'MED' ? '#f97316' : '#eab308');
+
+            // If marker already exists, update its position and color dynamically
+            if (incidentMarkers[inc.id]) {
+                incidentMarkers[inc.id].setStyle({ color: color, fillColor: color });
+                incidentMarkers[inc.id].setPopupContent(`<b>[${inc.severity}] ${inc.title}</b>`);
+            } else {
+                // Create new marker
+                const marker = L.circleMarker([inc.latitude, inc.longitude], {
+                    color: color,
+                    fillColor: color,
+                    fillOpacity: 0.8,
+                    radius: 9
+                }).bindPopup(`<b>[${inc.severity}] ${inc.title}</b>`).addTo(map);
+
+                incidentMarkers[inc.id] = marker;
+            }
+        }
+
+        // ----------------------------------------------------
+        // Real-Time WebSocket Listener
+        // ----------------------------------------------------
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+        const mapSocket = new WebSocket(wsProtocol + window.location.host + '/ws/map/');
+
+        mapSocket.onmessage = function (e) {
+            const data = JSON.parse(e.data);
+            console.log("⚡ Live WebSocket Update Received:", data);
+
+            if (data.action === "incident_updated") {
+                addOrUpdateIncidentMarker({
+                    id: data.incident_id,
+                    latitude: data.latitude,
+                    longitude: data.longitude,
+                    severity: data.severity,
+                    title: data.title
+                });
+            }
+        };
+
+        mapSocket.onclose = function (e) {
+            console.error('WebSocket connection closed unexpectedly.');
+        };
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        // Handle Incident Form Submission
+        document.getElementById('incidentForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            const payload = {
+                title: document.getElementById('title').value,
+                severity: document.getElementById('severity').value,
+                latitude: document.getElementById('latitude').value,
+                longitude: document.getElementById('longitude').value,
+                description: document.getElementById('description').value
+            };
+
+            fetch('/api/report/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+                body: JSON.stringify(payload)
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        alert('Incident Reported Successfully! Celery worker will evaluate spatial risk.');
+                        if (tempMarker) map.removeLayer(tempMarker);
+                        document.getElementById('incidentForm').reset();
+
+                        // Reload map markers after 1 second to give Celery time to complete evaluation
+                        setTimeout(loadMapData, 1000);
+                    } else {
+                        alert('Error submitting report: ' + data.message);
+                    }
+                })
+                .catch(err => console.error('Submission failed:', err));
+        });
+        // Function to handle WebSocket connection with auto-reconnect
+        function connectWebSocket() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+            const mapSocket = new WebSocket(wsProtocol + window.location.host + '/ws/map/');
+
+            mapSocket.onopen = function () {
+                console.log("⚡ Connected to Live Emergency Channel");
+            };
+
+            mapSocket.onmessage = function (e) {
+                const data = JSON.parse(e.data);
+                console.log("⚡ Live WebSocket Update Received:", data);
+
+                if (data.action === "incident_updated") {
+                    addOrUpdateIncidentMarker({
+                        id: data.incident_id,
+                        latitude: data.latitude,
+                        longitude: data.longitude,
+                        severity: data.severity,
+                        title: data.title
+                    });
+                }
+            };
+
+            mapSocket.onclose = function (e) {
+                console.warn('WebSocket closed. Retrying connection in 3 seconds...');
+                setTimeout(connectWebSocket, 3000); // Auto-reconnect after 3 seconds
+            };
+
+            mapSocket.onerror = function (err) {
+                console.error('WebSocket Error:', err);
+                mapSocket.close();
+            };
+        }
+
+        // Initialize connection
+        connectWebSocket();
+
+        // Initial Data Fetch on Page Load
+        loadMapData();
+    </script>
+</body>
+
+</html>
