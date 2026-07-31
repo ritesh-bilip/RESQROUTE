@@ -1,23 +1,27 @@
 """
 Django settings for config project.
-Production-Ready Configuration.
+Local Development Configuration.
 """
 
 import os
 from pathlib import Path
 
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# --- SECURITY ---
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-default-change-me-in-production')
-DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
+# Restore GDAL & GEOS paths for local Windows OSGeo4W setup
+if os.name == 'nt':
+    # Check your OSGeo4W folder if gdal dll name differs (e.g. gdal304.dll vs gdal313.dll)
+    GDAL_LIBRARY_PATH = r'C:\Users\dasri\AppData\Local\Programs\OSGeo4W\bin\gdal313.dll' 
+    GEOS_LIBRARY_PATH = r'C:\Users\dasri\AppData\Local\Programs\OSGeo4W\bin\geos_c.dll'
 
-# Allow requests from your Railway backend and Vercel frontend domains
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = 'django-insecure-gil!q=9-dbe#gasmume6tg*z^c22l#(8v0n^n_leu8l-u(0!xn'
 
-# CORS settings for frontend deployed on Vercel
-CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', 'https://your-frontend.vercel.app').split(',')
-CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only allow all in debug/local development
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = True
+
+ALLOWED_HOSTS = ['*']
 
 # Application definition
 INSTALLED_APPS = [
@@ -27,7 +31,6 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    'whitenoise.runserver_nostatic',
     'django.contrib.staticfiles',
     'django.contrib.gis',
     'rest_framework',
@@ -36,9 +39,8 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',  # Serve static files efficiently
-    'corsheaders.middleware.CorsMiddleware',        # CORS handling for Vercel
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -47,12 +49,14 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+CORS_ALLOW_ALL_ORIGINS = True
+
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],
+        'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -67,21 +71,20 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = 'config.asgi.application'
 
-# --- DATABASE (PostGIS) ---
-# Parses Railway's provided DATABASE_URL if available
+# --- LOCAL POSTGIS DATABASE ---
 DATABASES = {
     'default': {
         'ENGINE': 'django.contrib.gis.db.backends.postgis',
-        'NAME': os.environ.get('POSTGRES_DB', 'resqroute_db'),
-        'USER': os.environ.get('POSTGRES_USER', 'postgres'),
-        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'RITESH@2004'),
-        'HOST': os.environ.get('POSTGRES_HOST', 'db'),
-        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+        'NAME': 'resqroute_db',
+        'USER': 'postgres',
+        'PASSWORD': 'RITESH@2004',
+        'HOST': 'localhost',
+        'PORT': '5432',
     }
 }
 
-# --- REDIS & CACHING FOR RATE LIMITING ---
-REDIS_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
+# --- REDIS & CACHING FOR LOCAL RATE LIMITING ---
+REDIS_URL = 'redis://127.0.0.1:6379/0'
 
 CACHES = {
     "default": {
@@ -97,12 +100,12 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '60/minute',  # Rate limit for unauthenticated users
-        'user': '1000/day',   # Rate limit for authenticated users
+        'anon': '60/minute',
+        'user': '1000/day',
     }
 }
 
-# --- PASSWORD VALIDATION ---
+# Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -110,16 +113,14 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# --- INTERNATIONALIZATION ---
+# Internationalization
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-# --- STATIC FILES ---
-STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# Static files
+STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -130,14 +131,13 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
-CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 # --- DJANGO CHANNELS CONFIGURATION ---
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            "hosts": [REDIS_URL],
+            "hosts": [('127.0.0.1', 6379)],
         },
     },
 }
